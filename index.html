@@ -146,12 +146,6 @@
             white-space: nowrap;
         }
 
-        .action-button.active {
-            background: rgba(33, 150, 243, 0.15);
-            color: var(--primary-color);
-            transform: scale(1.05);
-        }
-
         .file-preview {
             max-width: 300px;
             border-radius: 8px;
@@ -223,15 +217,15 @@
 </head>
 <body>
     <div class="chat-container">
-        <div class="model-indicator" id="modelIndicator">Model: Gemini Pro</div>
+        <div class="model-indicator" id="modelIndicator">Model: Gemini 1.5 Flash</div>
         <div id="chatMessages"></div>
         <img id="imagePreview" class="file-preview" alt="Preview">
         <div class="input-container">
             <div class="action-buttons">
-                <button class="action-button" id="fileInputButton" title="Attach file">
+                <label for="fileInput" class="action-button" title="Attach image">
                     <i class="fas fa-paperclip"></i>
-                </button>
-                <input type="file" id="fileInput" hidden accept="image/*, text/plain">
+                </label>
+                <input type="file" id="fileInput" hidden accept="image/*">
                 <span class="file-name" id="fileName"></span>
                 <button class="action-button" id="voiceButton" title="Voice Input">
                     <i class="fas fa-microphone"></i>
@@ -261,8 +255,8 @@
             const loadingSpinner = document.getElementById('loadingSpinner');
             const statusMessage = document.getElementById('statusMessage');
 
-            
             const API_KEY = 'AIzaSyCbb67pP3aNu30Yt4WrUTBhto00YNjLy0k';
+            const MODEL_NAME = 'gemini-1.5-flash';
             let recognition;
             let isListening = false;
             let silenceTimer;
@@ -326,29 +320,22 @@
                 try {
                     const contentParts = [];
                     const finalMessage = message || "Describe this image";
-                    let isImage = false;
-
+                    
                     if (message) contentParts.push({ text: finalMessage });
 
                     if (attachedFile) {
-                        if (attachedFile.type.startsWith('image/')) {
-                            isImage = true;
-                            const base64Data = await readFileContent(attachedFile);
-                            contentParts.push({
-                                inline_data: {
-                                    mime_type: attachedFile.type,
-                                    data: base64Data.split(',')[1]
-                                }
-                            });
-                        } else if (attachedFile.type.startsWith('text/')) {
-                            const textContent = await readFileContent(attachedFile);
-                            contentParts.push({ text: `File content: ${textContent}` });
-                        }
+                        const base64Data = await readFileContent(attachedFile);
+                        contentParts.push({
+                            inline_data: {
+                                mime_type: attachedFile.type,
+                                data: base64Data.split(',')[1]
+                            }
+                        });
                     }
 
                     addMessage(finalMessage, true);
                     
-                    const botResponse = await getGeminiResponse(contentParts, isImage);
+                    const botResponse = await getGeminiResponse(contentParts);
                     addMessage(botResponse, false);
 
                     userInput.value = '';
@@ -365,10 +352,8 @@
                 }
             }
 
-            async function getGeminiResponse(contentParts, isImage = false) {
-                const model = isImage ? 'gemini-pro-vision' : 'gemini-pro';
-                document.getElementById('modelIndicator').textContent = `Model: ${model.replace(/-/g, ' ')}`;
-                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+            async function getGeminiResponse(contentParts) {
+                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
 
                 try {
                     const response = await fetch(`${API_URL}?key=${API_KEY}`, {
@@ -376,6 +361,7 @@
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             contents: [{
+                                role: "user",
                                 parts: contentParts
                             }]
                         })
@@ -388,16 +374,11 @@
 
                     const data = await response.json();
                     
-                    if (!data.candidates || data.candidates.length === 0) {
-                        throw new Error('No response generated');
-                    }
-                    
-                    const candidate = data.candidates[0];
-                    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-                        throw new Error('Invalid response format');
+                    if (!data.candidates?.[0]?.content?.parts) {
+                        throw new Error('Invalid response format from API');
                     }
 
-                    return candidate.content.parts[0].text;
+                    return data.candidates[0].content.parts[0].text;
 
                 } catch (error) {
                     console.error('API Error:', error);
@@ -490,7 +471,7 @@
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result);
                     reader.onerror = reject;
-                    file.type.startsWith('image/') ? reader.readAsDataURL(file) : reader.readAsText(file);
+                    reader.readAsDataURL(file);
                 });
             }
 
@@ -516,19 +497,16 @@
                     attachedFile = e.target.files[0];
                     if (!attachedFile) return;
 
-                    if (!attachedFile.type.startsWith('image/') && 
-                       !attachedFile.type.startsWith('text/')) {
-                        throw new Error('Unsupported file type');
+                    if (!attachedFile.type.startsWith('image/')) {
+                        throw new Error('Only image files are supported (PNG, JPG, JPEG)');
                     }
 
                     document.getElementById('fileName').textContent = attachedFile.name;
                     document.getElementById('fileName').style.display = 'inline-block';
 
-                    if (attachedFile.type.startsWith('image/')) {
-                        const preview = document.getElementById('imagePreview');
-                        preview.src = await readFileContent(attachedFile);
-                        preview.style.display = 'block';
-                    }
+                    const preview = document.getElementById('imagePreview');
+                    preview.src = await readFileContent(attachedFile);
+                    preview.style.display = 'block';
 
                 } catch (error) {
                     showStatus(error.message, true);
